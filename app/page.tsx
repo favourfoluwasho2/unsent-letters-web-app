@@ -1,5 +1,6 @@
 'use client'
 
+import useSWR from 'swr'
 import { useState } from 'react'
 import { Archive, ArrowLeft, ChevronRight, Feather, Flag, Heart, Mail, Menu, PenLine, Send, ShieldCheck } from 'lucide-react'
 
@@ -9,7 +10,7 @@ type Letter = { serial: string; date: string; body: string; replyCount: number }
 
 type Reply = { serial: string; letterSerial: string; body: string; date: string }
 
-const letters: Letter[] = [
+const demoLetters: Letter[] = [
   { serial: 'L-4821', date: 'October 7, 2026', body: 'I keep comparing the chapter I am living to everyone else’s highlight reel. Some days I feel behind, even though I know there is no single timeline for a life. I am trying to remember that quiet progress still counts.', replyCount: 12 },
   { serial: 'L-1742', date: 'Undated', body: 'I moved to a new city for a fresh start, but the quiet feels louder than I expected. I miss having people who know the small details. I hope I can be patient while I build something new here.', replyCount: 8 },
 ]
@@ -20,16 +21,21 @@ const myReplies: Reply[] = [
 ]
 
 export default function Page() {
+  const { data: storedLetters, mutate } = useSWR<Letter[]>('/api/letters', (url) => fetch(url).then((response) => response.json()))
+  const availableLetters = storedLetters?.length ? storedLetters : demoLetters
   const [view, setView] = useState<View>('write')
-  const [letter, setLetter] = useState(letters[0])
+  const [letter, setLetter] = useState(availableLetters[0])
   const [body, setBody] = useState('')
   const [dated, setDated] = useState(false)
   const [reply, setReply] = useState('')
   const [notice, setNotice] = useState('')
 
-  function postLetter() {
+  async function postLetter() {
     if (body.trim().length < 20) { setNotice('Please write at least 20 characters so a stranger has something to hold onto.'); return }
-    setNotice('Your letter is being read with care. It will appear once it passes our safety check.')
+    const response = await fetch('/api/letters', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body, dated }) })
+    if (!response.ok) { setNotice('We could not save your letter. Please try again.'); return }
+    await mutate()
+    setNotice('Your letter is being read with care. It is now safely saved.')
     setBody('')
   }
 
@@ -74,7 +80,7 @@ export default function Page() {
           </>}
 
           {view === 'read' && <>
-            <div className="mb-8 flex items-end justify-between gap-4"><div><p className="eyebrow">From someone out there</p><h1 className="mt-3 font-serif text-4xl font-semibold tracking-tight">A letter for you.</h1></div><button onClick={() => setLetter(letters[(letters.indexOf(letter) + 1) % letters.length])} className="secondary-button"><ArrowLeft className="size-4 rotate-180" />Another letter</button></div>
+            <div className="mb-8 flex items-end justify-between gap-4"><div><p className="eyebrow">From someone out there</p><h1 className="mt-3 font-serif text-4xl font-semibold tracking-tight">A letter for you.</h1></div><button onClick={() => setLetter(availableLetters[(availableLetters.indexOf(letter) + 1) % availableLetters.length])} className="secondary-button"><ArrowLeft className="size-4 rotate-180" />Another letter</button></div>
             <article className="paper-card p-6 md:p-10"><div className="mb-8 flex items-center justify-between border-b border-navy-ink/10 pb-5"><span className="serial">{letter.serial}</span><span className="font-serif text-sm italic text-navy-ink/55">{letter.date}</span></div><p className="whitespace-pre-wrap font-serif text-xl leading-9 text-navy-ink">{letter.body}</p><div className="mt-10 flex justify-end"><button className="report-button"><Flag className="size-3.5" />Report</button></div></article>
             <div className="mt-8 rounded-2xl border border-navy-ink/10 bg-white/35 p-6 md:p-8"><div className="mb-5 flex items-start gap-3"><Heart className="mt-1 size-5 text-red-stamp" /><div><h2 className="font-serif text-xl font-semibold">Write back</h2><p className="mt-1 text-sm text-navy-ink/55">A small kindness can travel a long way.</p></div></div><textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Encourage, don't give orders or ask for personal details." className="min-h-32 w-full resize-y rounded-xl border border-navy-ink/15 bg-white/45 p-4 font-serif leading-7 outline-none placeholder:text-navy-ink/35 focus:border-red-stamp focus:ring-2 focus:ring-red-stamp/20" /><div className="mt-4 flex justify-end"><button onClick={sendReply} className="primary-button"><Send className="size-4" />Send reply</button></div></div>{notice && <div role="status" className="mt-5 text-sm text-navy-ink/70"><ShieldCheck className="mr-2 inline size-4 text-red-stamp" />{notice}</div>}
           </>}
