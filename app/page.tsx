@@ -30,7 +30,13 @@ export default function Page() {
   const availableLetters = storedLetters?.length ? storedLetters : demoLetters
   const [view, setView] = useState<View>('write')
   const [letter, setLetter] = useState(availableLetters[0])
-  const { data: thread = [], mutate: mutateThread } = useSWR<Reply[]>(letter?.serial ? `/api/replies?letter=${encodeURIComponent(letter.serial)}` : null, (url: string) => fetch(url).then((response) => response.json()))
+  const { data: thread = [], mutate: mutateThread } = useSWR<Reply[]>(letter?.serial ? `/api/replies?letter=${encodeURIComponent(letter.serial)}` : null, (url: string) => fetch(url).then((response) => response.ok ? response.json() : []))
+
+  useEffect(() => {
+    if (storedLetters?.length) {
+      setLetter((current) => storedLetters.find((item) => item.serial === current?.serial) ?? storedLetters[0])
+    }
+  }, [storedLetters])
   const [body, setBody] = useState('')
   const [dated, setDated] = useState(false)
   const [mood, setMood] = useState('')
