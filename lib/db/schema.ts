@@ -13,6 +13,7 @@ export const letters = pgTable('letters', {
 export const replies = pgTable('replies', {
   id: uuid('id').defaultRandom().primaryKey(),
   letterId: uuid('letter_id').notNull(),
+  parentReplyId: uuid('parent_reply_id'),
   serial: varchar('serial', { length: 12 }).notNull().unique(),
   body: text('body').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

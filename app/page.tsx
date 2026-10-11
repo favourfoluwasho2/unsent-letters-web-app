@@ -6,7 +6,7 @@ import { Archive, ArrowRight, Feather, Flag, Heart, Mail, Mic, MicOff, PenLine, 
 
 type View = 'write' | 'read' | 'replies'
 type Letter = { serial: string; date: string; body: string; replyCount: number; mood?: string }
-type Reply = { serial: string; letterSerial: string; body: string; date: string }
+type Reply = { id?: string; serial: string; letterSerial: string; parentReplyId?: string | null; body: string; date: string }
 type SpeechRecognitionInstance = { continuous: boolean; interimResults: boolean; lang: string; start: () => void; stop: () => void; onresult: ((event: { results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null }
 type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance
 
@@ -30,10 +30,12 @@ export default function Page() {
   const availableLetters = storedLetters?.length ? storedLetters : demoLetters
   const [view, setView] = useState<View>('write')
   const [letter, setLetter] = useState(availableLetters[0])
+  const { data: thread = [], mutate: mutateThread } = useSWR<Reply[]>(letter?.serial ? `/api/replies?letter=${encodeURIComponent(letter.serial)}` : null, (url: string) => fetch(url).then((response) => response.json()))
   const [body, setBody] = useState('')
   const [dated, setDated] = useState(false)
   const [mood, setMood] = useState('')
   const [reply, setReply] = useState('')
+  const [replyTo, setReplyTo] = useState<Reply | null>(null)
   const [notice, setNotice] = useState('')
   const [isListening, setIsListening] = useState(false)
   const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
@@ -67,9 +69,11 @@ export default function Page() {
     if (!response.ok) { setNotice('We could not save your letter. Please try again.'); return }
     await mutate(); setNotice('Sent. Your letter is being read with care.'); setBody(''); setMood('')
   }
-  function sendReply() {
+  async function sendReply() {
     if (reply.trim().length < 20) { setNotice('Please write a little more so your encouragement can be helpful.'); return }
-    setNotice('Sent. Thank you for showing up for someone.'); setReply('')
+    const response = await fetch('/api/replies', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ letterSerial: letter.serial, body: reply, parentReplySerial: replyTo?.serial }) })
+    if (!response.ok) { setNotice('We could not send your reply. Please try again.'); return }
+    await mutateThread(); setNotice('Sent. Your place in this conversation is anonymous.'); setReply(''); setReplyTo(null)
   }
 
   return <main className="min-h-screen pb-28">
@@ -85,7 +89,7 @@ export default function Page() {
         {notice && <Notice text={notice} />}
       </>}
 
-      {view === 'read' && <><div className="hero compact"><p className="kicker">From someone out there</p><div className="flex items-end justify-between gap-4"><h1>A letter for you.</h1><button onClick={() => setLetter(availableLetters[(availableLetters.indexOf(letter) + 1) % availableLetters.length])} className="secondary-button shrink-0"><ArrowRight />Another letter</button></div></div><LetterCard letter={letter} /><div className="glass-panel mt-7 p-5 sm:p-7"><div className="mb-5 flex items-start gap-3"><Heart className="mt-1 text-rose" /><div><h2>Write back</h2><p className="mt-1 text-sm text-muted">Encourage, don&apos;t give orders or ask for personal details.</p></div></div><div className="flex flex-wrap gap-2">{starters.map((item) => <button key={item} className="starter-chip" onClick={() => setReply(item.replace('&apos;', "'"))}>{item.replace('&apos;', "'")}</button>)}</div><textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Your kind reply..." className="letter-input mt-5 min-h-32 w-full resize-y" /><div className="mt-4 flex justify-end"><button onClick={sendReply} className="primary-button"><Send />Send reply</button></div></div>{notice && <Notice text={notice} />}</>}
+      {view === 'read' && <><div className="hero compact"><p className="kicker">From someone out there</p><div className="flex items-end justify-between gap-4"><h1>A letter for you.</h1><button onClick={() => setLetter(availableLetters[(availableLetters.indexOf(letter) + 1) % availableLetters.length])} className="secondary-button shrink-0"><ArrowRight />Another letter</button></div></div><LetterCard letter={letter} />{thread.length > 0 && <section className="mt-7" aria-labelledby="conversation-heading"><div className="mb-4 flex items-center justify-between"><h2 id="conversation-heading">A conversation in progress</h2><span className="text-xs text-muted">{thread.length} {thread.length === 1 ? 'reply' : 'replies'}</span></div><div className="flex flex-col gap-3">{thread.map((item) => <article key={item.id ?? item.serial} className={`reply-card ${item.parentReplyId ? 'reply-card-nested' : ''}`}><div className="mb-2 flex items-center justify-between gap-3 text-xs text-muted"><span className="serial">{item.serial}</span><span>{item.date}</span></div><p className="font-serif leading-7 text-ink">{item.body}</p><button className="reply-link mt-3" onClick={() => { setReplyTo(item); setReply('') }}>Reply to this response <ArrowRight /></button></article>)}</div></section>}<div className="glass-panel mt-7 p-5 sm:p-7"><div className="mb-5 flex items-start gap-3"><Heart className="mt-1 text-rose" /><div><h2>{replyTo ? `Reply to ${replyTo.serial}` : 'Write back'}</h2><p className="mt-1 text-sm text-muted">Encourage, don&apos;t give orders or ask for personal details.</p></div></div>{replyTo && <button className="reply-cancel" onClick={() => setReplyTo(null)}>Cancel reply</button>}<div className="flex flex-wrap gap-2">{starters.map((item) => <button key={item} className="starter-chip" onClick={() => setReply(item.replace('&apos;', "'"))}>{item.replace('&apos;', "'")}</button>)}</div><textarea value={reply} onChange={(e) => setReply(e.target.value)} placeholder={replyTo ? `Continue the conversation with ${replyTo.serial}...` : 'Your kind reply...'} className="letter-input mt-5 min-h-32 w-full resize-y" /><div className="mt-4 flex justify-end"><button onClick={sendReply} className="primary-button"><Send />Send reply</button></div></div>{notice && <Notice text={notice} />}</>}
 
       {view === 'replies' && <><div className="hero compact"><p className="kicker">Your anonymous mailbox</p><h1>My replies.</h1><p>Replies to your letters, gathered here by serial number.</p></div><div className="flex flex-col gap-5">{myReplies.map((item) => <article key={item.serial} className="paper-card p-6 sm:p-8"><div className="mb-5 flex items-center justify-between text-sm"><span className="serial">{item.serial}</span><span className="text-muted">Reply to {item.letterSerial} · {item.date}</span></div><p className="font-serif text-lg leading-8 text-ink">{item.body}</p><button className="report-button mt-6"><Flag />Report</button></article>)}</div></>}
     </section>
