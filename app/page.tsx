@@ -1,12 +1,18 @@
 'use client'
 
 import useSWR from 'swr'
-import { useState } from 'react'
-import { Archive, ArrowRight, Feather, Flag, Heart, Mail, PenLine, Send, ShieldCheck } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Archive, ArrowRight, Feather, Flag, Heart, Mail, Mic, MicOff, PenLine, Send, ShieldCheck } from 'lucide-react'
 
 type View = 'write' | 'read' | 'replies'
 type Letter = { serial: string; date: string; body: string; replyCount: number; mood?: string }
 type Reply = { serial: string; letterSerial: string; body: string; date: string }
+type SpeechRecognitionInstance = { continuous: boolean; interimResults: boolean; lang: string; start: () => void; stop: () => void; onresult: ((event: { results: ArrayLike<{ isFinal: boolean; 0: { transcript: string } }> }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null }
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance
+
+declare global {
+  interface Window { SpeechRecognition?: SpeechRecognitionConstructor; webkitSpeechRecognition?: SpeechRecognitionConstructor }
+}
 
 const demoLetters: Letter[] = [
   { serial: 'L-4821', date: 'October 7, 2026', mood: 'Feeling behind', body: 'I keep comparing the chapter I am living to everyone else’s highlight reel. Some days I feel behind, even though I know there is no single timeline for a life. I am trying to remember that quiet progress still counts.', replyCount: 12 },
@@ -20,7 +26,7 @@ const moods = ['Heavy', 'Lonely', 'Anxious', 'Missing someone', 'Hopeful', 'Just
 const starters = ["You&apos;re not alone in this.", 'Thank you for being brave enough to write this.', 'What you feel makes sense.', 'I hope tomorrow is a little lighter.']
 
 export default function Page() {
-  const { data: storedLetters, mutate } = useSWR<Letter[]>('/api/letters', (url) => fetch(url).then((response) => response.json()))
+  const { data: storedLetters, mutate } = useSWR<Letter[]>('/api/letters', (url: string) => fetch(url).then((response) => response.json()))
   const availableLetters = storedLetters?.length ? storedLetters : demoLetters
   const [view, setView] = useState<View>('write')
   const [letter, setLetter] = useState(availableLetters[0])
@@ -29,6 +35,30 @@ export default function Page() {
   const [mood, setMood] = useState('')
   const [reply, setReply] = useState('')
   const [notice, setNotice] = useState('')
+  const [isListening, setIsListening] = useState(false)
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
+
+  useEffect(() => () => recognitionRef.current?.stop(), [])
+
+  function toggleDictation() {
+    if (isListening) { recognitionRef.current?.stop(); setIsListening(false); return }
+    const Recognition = window.SpeechRecognition ?? window.webkitSpeechRecognition
+    if (!Recognition) { setNotice('Voice typing is not supported in this browser. Try Chrome or Safari.'); return }
+    const recognition = new Recognition()
+    recognition.continuous = true
+    recognition.interimResults = false
+    recognition.lang = navigator.language || 'en-US'
+    recognition.onresult = (event) => {
+      const transcript = Array.from(event.results).filter((result) => result.isFinal).map((result) => result[0].transcript).join(' ')
+      if (transcript) setBody((current) => `${current}${current && !current.endsWith(' ') ? ' ' : ''}${transcript}`)
+    }
+    recognition.onend = () => setIsListening(false)
+    recognition.onerror = () => { setIsListening(false); setNotice('We could not hear that. Please check microphone access and try again.') }
+    recognitionRef.current = recognition
+    setNotice('')
+    setIsListening(true)
+    recognition.start()
+  }
 
   function navigate(next: View) { setView(next); setNotice('') }
   async function postLetter() {
@@ -51,7 +81,7 @@ export default function Page() {
     <section className="mx-auto max-w-[660px] px-5">
       {view === 'write' && <>
         <div className="hero"><p className="kicker">A quiet place to begin</p><h1>Say it here. Someone will listen.</h1><p>Write the thing you can&apos;t say out loud. A stranger will write back, just to say you&apos;re not alone.</p><div className="flex flex-wrap gap-2 pt-2"><span className="soft-chip">No names</span><span className="soft-chip">No accounts</span><span className="soft-chip">Serial numbers only</span></div></div>
-        <div className="glass-panel breathing mt-8 p-5 sm:p-8"><div className="mb-7"><h2>How are you feeling tonight?</h2><div className="mt-4 flex flex-wrap gap-2">{moods.map((item) => <button key={item} onClick={() => setMood(mood === item ? '' : item)} className={`mood-chip ${mood === item ? 'mood-chip-selected' : ''}`}>{item}</button>)}</div></div><label htmlFor="letter" className="letter-label">Dear stranger,</label><textarea id="letter" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Take your time. There's no right way to start." className="letter-input min-h-64 w-full resize-y" /><div className="mt-6 flex flex-col gap-4 border-t border-white/10 pt-5 sm:flex-row sm:items-center sm:justify-between"><label className="flex cursor-pointer items-center gap-3 text-sm text-muted"><input type="checkbox" checked={dated} onChange={(e) => setDated(e.target.checked)} />Add today&apos;s date</label><button onClick={postLetter} className="primary-button"><Send />Send into the world</button></div></div>
+        <div className="glass-panel breathing mt-8 p-5 sm:p-8"><div className="mb-7"><h2>How are you feeling tonight?</h2><div className="mt-4 flex flex-wrap gap-2">{moods.map((item) => <button key={item} onClick={() => setMood(mood === item ? '' : item)} className={`mood-chip ${mood === item ? 'mood-chip-selected' : ''}`}>{item}</button>)}</div></div><label htmlFor="letter" className="letter-label">Dear stranger,</label><div className="relative"><textarea id="letter" value={body} onChange={(e) => setBody(e.target.value)} placeholder="Take your time. There's no right way to start." className="letter-input min-h-64 w-full resize-y pr-14" /><button type="button" onClick={toggleDictation} className={`dictation-button ${isListening ? 'dictation-button-active' : ''}`} aria-label={isListening ? 'Stop voice typing' : 'Start voice typing'} aria-pressed={isListening}>{isListening ? <MicOff /> : <Mic />}</button></div>{isListening && <p className="dictation-status" role="status"><span className="dictation-dot" />Listening… speak naturally, then pause when you&apos;re done.</p>}<div className="mt-6 flex flex-col gap-4 border-t border-white/10 pt-5 sm:flex-row sm:items-center sm:justify-between"><label className="flex cursor-pointer items-center gap-3 text-sm text-muted"><input type="checkbox" checked={dated} onChange={(e) => setDated(e.target.checked)} />Add today&apos;s date</label><button onClick={postLetter} className="primary-button"><Send />Send into the world</button></div></div>
         {notice && <Notice text={notice} />}
       </>}
 
